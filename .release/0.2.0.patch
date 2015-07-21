@@ -1,0 +1,98 @@
+diff --git a/WebSite.pm b/WebSite.pm
+index 6be5e1e..be3019e 100644
+--- a/WebSite.pm
++++ b/WebSite.pm
+@@ -2,10 +2,13 @@ package WebSite;
+ use Mojo::Base 'Mojolicious';
+ use AnyEvent::DBI::MySQL;
+ use DBIx::SecureCGI;
++use JSON::RPC2::Server;
+ use List::Util 1.33 qw( none );
++use MojoX::JSONRPC2::HTTP;
+ use Text::MiniTmpl qw( encode_js encode_js_data );
+ 
+ use _init;
++use _svc;
+ 
+ use constant CONFIG_LINE    => qw( title );
+ use constant CONFIG_FULL    => qw( );
+@@ -34,6 +37,7 @@ sub startup {
+         tag_end   => '%]',
+     });
+     $app->plugin('ValidateTiny');
++    $app->plugin('JSONRPC2');
+ 
+     #--- Helpers
+     $app->helper(render_cb      => sub { shift->render_later->proxy(@_) });
+@@ -61,6 +65,7 @@ sub startup {
+         return $c->do_validation(_sane_validation_rules($rules), $json);
+     });
+     $app->helper(validator_set_errors => \&_set_validation_errors);
++    $app->helper(jsonrpc2 => sub { state $jsonrpc2 = MojoX::JSONRPC2::HTTP->new });
+ 
+     #--- Hooks
+     $app->hook(before_routes => sub {
+@@ -84,12 +89,22 @@ sub startup {
+     #--- Defaults
+     $app->defaults(appjs => 'main');
+ 
++    #--- RPC
++    my $server = JSON::RPC2::Server->new;
++
++    $server->register_nb(version => \&_svc::version);
++    $server->register_nb(internal_version => \&_svc::internal_version);
++
+     #--- Routes
+     my $r = $app->routes;
+ 
+     $r->get(q{/})->to('root#index');
+     $r->get(q{/version})->to('version#project');
+ 
++    $r->under(sub{ $::c = $::c = shift })
++      ->jsonrpc2(q{/}, $server);
++
++
+     return;
+ }
+ 
+diff --git a/_svc.pm b/_svc.pm
+new file mode 100644
+index 0000000..77e8018
+--- /dev/null
++++ b/_svc.pm
+@@ -0,0 +1,35 @@
++package _svc;
++use Mojo::Base -strict;
++use _init;
++
++sub version {
++    my ($cb) = @_;
++    my $port = (split /:/ms, $::c->app->config('hypnotoad')->{listen}[0])[2];
++    $::c->jsonrpc2->url('http://localhost:'.$port)->call(internal_version => 'pass', sub {
++        my ($failed, $result, $error) = @_;
++        if (defined $failed) {
++            $cb->(undef, 2, 'Network Error');
++        }
++        elsif (defined $error) {
++            $cb->($result, $error->{code}, $error->{message});
++        }
++        else {
++            $cb->($result);
++        }
++    });
++    return;
++}
++
++sub internal_version {
++    my ($cb, $secret) = @_;
++    if ($secret ne 'pass') {
++        return $cb->(undef, 1, 'bad secret');
++    }
++    Mojo::IOLoop->timer(1 => sub {
++        return $cb->($::VERSION);
++    });
++    return;
++}
++
++
++1;
