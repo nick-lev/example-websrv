@@ -250,3 +250,18 @@ add_config crontab/service -
 restart log
 
 
+### narada-plugin-mojo
+
+add_config basepath
+add_config cookie.secret
+add_config mode
+add_config title                "Web Site"
+add_config hypnotoad/accepts    0
+add_config hypnotoad/listen     http://*:8077
+add_config hypnotoad/proxy      1
+add_config hypnotoad/workers    1
+add_config hypnotoad/debug      0
+
+restart hypnotoad
+
+
